@@ -1,7 +1,26 @@
+using Microsoft.Extensions.Azure;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
-var host = new HostBuilder()
-    .ConfigureFunctionsWorkerDefaults()
-    .Build();
+namespace RfAdmin
+{
+    internal class Program
+    {
+        static void Main(string[] args)
+        {
+            var host = new HostBuilder()
+                 .ConfigureFunctionsWorkerDefaults()
+                 .ConfigureServices(s =>
+                 {
+                     s.AddLogging()
+                     .AddAzureClients(clientBuilder =>
+                     {
+                         clientBuilder.AddTableServiceClient(Environment.GetEnvironmentVariable("AzureWebJobsStorage"));
+                     });
+                 })
+                 .Build();
 
-host.Run();
+            host.Run();
+        }
+    }
+}

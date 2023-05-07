@@ -1,48 +1,50 @@
-using System.ComponentModel.DataAnnotations.Schema;
-using System.Net;
 using Azure.Data.Tables;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Http;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using System.Net;
+using System.Text;
 
 namespace RfAdmin
 {
     public class Authentication
     {
         private readonly ILogger _logger;
+        private readonly TableClient _tableClient;
 
-        public Authentication(ILoggerFactory loggerFactory)
+        public Authentication(ILoggerFactory loggerFactory, TableServiceClient tableServiceClient)
         {
-            _logger = loggerFactory.CreateLogger<Authentication>();            
+            _logger = loggerFactory.CreateLogger<Authentication>();
+            _tableClient = tableServiceClient.GetTableClient("RfTag");
+            _tableClient.CreateIfNotExists();
         }
 
         [Function("Authentication")]
-        public async Task<IActionResult> Authenticate(
+        public async Task<bool> Authenticate(
             [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "RfTag/Authenticate/{rfid}")] HttpRequestData req,
-            string rfid,
-            [TableInput("RfTag", "Tags", "{rfid}", Connection = "AzureWebJobsStorage")] RfTag tag)   
+            string rfid)   
         {
             try
             {
-                if (tag == null)
-                    return new OkObjectResult(false);
+                var tag = _tableClient.Query<RfTag>(t => t.RowKey == rfid && t.PartitionKey == "Tags");
+                if (!tag.Any())
+                    return false;
                 _logger.LogInformation($"RfId {rfid} successfully authenticated");
-                return new OkObjectResult(true);
+                return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error during execution of http trigger function: {ex.Message}", ex);
-                return new BadRequestObjectResult(ex.Message);
+                _logger.LogError(ex, $"Error during authentication of rfid {rfid}: {ex.Message}");
+                throw;
             }
         }
 
         [Function("Creation")]
-        [TableOutput("RfTag", Connection = "AzureWebJobsStorage")]
-        public async Task<RfTag> Create(
-            [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "RfTag/Create")] HttpRequestData req)
+        public async Task<HttpResponseData> Create([HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "RfTag/Create")] HttpRequestData req)
         {
+            var resp = HttpResponseData.CreateResponse(req);
             try
             {
                 var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
@@ -55,18 +57,22 @@ namespace RfAdmin
                 if (string.IsNullOrEmpty(id))
                     throw new ArgumentException($"No rfid input value given");
 
-
-                return new RfTag()
+                var tag = new RfTag()
                 {
                     PartitionKey = "Tags",
                     RowKey = id,
                 };
+
+                var creationResult = await _tableClient.AddEntityAsync(tag);
+                resp.StatusCode = HttpStatusCode.Created;
             }
             catch (Exception ex)
             {
-                _logger.LogError($"Error during execution of http trigger function: {ex.Message}", ex);
-                return null;
+                _logger.LogError(ex, $"Error during creation of RfTag: {ex.Message}");
+                resp.StatusCode = HttpStatusCode.InternalServerError;
+                resp.Body.Write(Encoding.UTF8.GetBytes(ex.Message));
             }
+            return resp;
         }
     }
 }
