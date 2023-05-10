@@ -7,6 +7,14 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Remove="New folder\**" />
+    <Compile Remove="RfAdmin.Test\**" />
+    <EmbeddedResource Remove="New folder\**" />
+    <EmbeddedResource Remove="RfAdmin.Test\**" />
+    <None Remove="New folder\**" />
+    <None Remove="RfAdmin.Test\**" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Azure.Data.Tables" Version="12.8.0" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc" Version="2.2.0" />
     <PackageReference Include="Microsoft.Azure.Functions.Worker" Version="1.14.0" />

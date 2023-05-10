@@ -14,9 +14,9 @@ namespace RfAdmin
         private readonly ILogger _logger;
         private readonly TableClient _tableClient;
 
-        public Authentication(ILoggerFactory loggerFactory, TableServiceClient tableServiceClient)
+        public Authentication(ILogger<Authentication> logger, TableServiceClient tableServiceClient)
         {
-            _logger = loggerFactory.CreateLogger<Authentication>();
+            _logger = logger;
             _tableClient = tableServiceClient.GetTableClient("RfTag");
             _tableClient.CreateIfNotExists();
         }
@@ -28,8 +28,8 @@ namespace RfAdmin
         {
             try
             {
-                var tag = _tableClient.Query<RfTag>(t => t.RowKey == rfid && t.PartitionKey == "Tags");
-                if (!tag.Any())
+                var tag = await _tableClient.GetEntityIfExistsAsync<RfTag>("Tags", rfid);
+                if (!tag.HasValue)
                     return false;
                 _logger.LogInformation($"RfId {rfid} successfully authenticated");
                 return true;
@@ -44,11 +44,14 @@ namespace RfAdmin
         [Function("Creation")]
         public async Task<HttpResponseData> Create([HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "RfTag/Create")] HttpRequestData req)
         {
-            var resp = HttpResponseData.CreateResponse(req);
             try
             {
-                var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
-                var id = query["rfid"];
+                string id = null;
+                if (!string.IsNullOrEmpty(req.Url?.Query))
+                {
+                    var query = System.Web.HttpUtility.ParseQueryString(req.Url.Query);
+                    id = query["rfid"];
+                }
 
                 string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
                 dynamic data = JsonConvert.DeserializeObject(requestBody);
@@ -64,15 +67,16 @@ namespace RfAdmin
                 };
 
                 var creationResult = await _tableClient.AddEntityAsync(tag);
-                resp.StatusCode = HttpStatusCode.Created;
+
+                return req.CreateResponse(HttpStatusCode.Created);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Error during creation of RfTag: {ex.Message}");
-                resp.StatusCode = HttpStatusCode.InternalServerError;
+                var resp = req.CreateResponse(HttpStatusCode.InternalServerError);
                 resp.Body.Write(Encoding.UTF8.GetBytes(ex.Message));
+                return resp;
             }
-            return resp;
         }
     }
 }
